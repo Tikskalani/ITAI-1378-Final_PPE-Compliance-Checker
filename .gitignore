@@ -1,0 +1,20 @@
+# Data & model artifacts (large / licensed — regenerate from data/README.md)
+data/raw/
+data/datasets/
+*.pt
+*.pth
+*.onnx
+runs/
+weights/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/

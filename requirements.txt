@@ -1,0 +1,22 @@
+# PPE Compliance Checker — Python 3.12
+# Install with: pip install -r requirements.txt
+
+# Core
+torch>=2.2
+torchvision>=0.17
+ultralytics>=8.3          # YOLO11 detection + training + tracking (ByteTrack for V2)
+
+# Data / IO / augmentation
+opencv-python>=4.9
+numpy>=1.26
+pillow>=10.2
+roboflow>=1.1            # download PPE datasets
+
+# Analysis + visualization
+pandas>=2.2
+matplotlib>=3.8
+scikit-learn>=1.4        # metrics: precision/recall, confusion matrix
+
+# Notebook
+jupyter>=1.0
+ipykernel>=6.29
