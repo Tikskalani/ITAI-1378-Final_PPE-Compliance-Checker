@@ -15,6 +15,8 @@
 
 The system takes an image of a work area and runs a fine-tuned YOLO11 object detector that locates each person and each PPE item. Per-worker logic then associates detected gear to the person it belongs to (gear box center inside the person box) and outputs a bounding box plus a **COMPLIANT** / **NON-COMPLIANT** label for each individual. A worker is compliant only when the required gear (helmet + vest by default) is **positively detected** on them; any overlapping `no_helmet` / `no_goggle` detection adds a violation. (This positive-evidence rule replaced the original rule after the dataset analysis — see `docs/dataset_analysis.md`, Finding 2; the V1 rule is kept as `--rule legacy`.)
 
+*Scope note vs. the proposal:* the midterm specified hard hat + vest + goggles as the required set. The final defaults to hard hat + vest because goggles are the smallest object in the dataset (median box 0.7% of image area, recall 0.75) — hard-requiring them would falsely flag roughly a quarter of compliant workers. Goggles enforcement remains available via `--require helmet,vest,goggles`, and any `no_goggle` detection still counts as a violation under the default rule.
+
 ```
 [ Job-site image ]
         |
@@ -23,7 +25,7 @@ The system takes an image of a work area and runs a fine-tuned YOLO11 object det
         |
         v
 [ Per-worker compliance logic ]  -- associate gear -> person
-        |                           required set = {hard hat, vest, goggles}
+        |                           required set = {hard hat, vest} (+ goggles via --require)
         v
 [ Output: box per worker + "Compliant" / "Non-compliant" ]
 ```
@@ -37,7 +39,7 @@ Annotated example outputs are in [`results/compliance_samples/`](results/complia
 | CV technique | Multi-class object detection | Locates and identifies people plus several gear types in a single pass. |
 | Model | YOLO11s (Ultralytics), fine-tuned | Strong accuracy/speed trade-off; trains on a free Colab T4 in ~17 minutes. |
 | Framework | PyTorch + Ultralytics | Standard, open-source; built-in tracking (ByteTrack) for the video extension. |
-| Compliance logic | Rule-based, per worker | Deterministic and explainable — associate detected gear to each person box; required set = hard hat + vest + goggles. |
+| Compliance logic | Rule-based, per worker | Deterministic and explainable — associate detected gear to each person box; default required set = hard hat + vest (goggles configurable via `--require`). |
 
 ## 3. Dataset
 
