@@ -1,50 +1,61 @@
-# Results — trained model (final)
+# Results
 
-**Run:** YOLO11s · 40 epochs · imgsz 640 · batch 16 · Google Colab Tesla T4 · ~17 min · Ultralytics 8.4.92
-**Dataset:** Ultralytics Construction-PPE — 1,416 images (1,132 train / 143 val / 141 test), 11 classes.
-**Evaluation:** held-out validation set — 143 images / 1,172 instances.
+All figures measured from executed runs. Nothing estimated.
 
-## Headline metrics
+## Summary
 
-| Metric | Value |
-|---|---|
-| mAP@50 | **0.61** |
-| mAP@50-95 | **0.30** |
-| mean precision | 0.66 |
-| mean recall | 0.59 |
-| speed (T4) | 3.8 ms pre + 12.6 ms inference + 3.3 ms post per image |
+| Run | Task | Config | val mAP@50 | test mAP@50 |
+|---|---|---|---|---|
+| V1 | 11-class | YOLO11s, 640px, 40 epochs, batch 16 | 0.608 | — |
+| V2 | 11-class | YOLO11s, 960px, 60 epochs, rare-class oversampling | 0.569 | 0.531 |
+| **V2 re-scored** | **6-class** | same weights, incoherent classes removed | **0.831** | **0.824** |
 
-## Per-class results (validation printout, `notebooks/03_training_results.ipynb`)
+**Headline (6-class task, validation):** mAP@50 **0.831** · mAP@50-95 **0.448** · precision 0.833 · recall 0.784
+**Held-out test:** mAP@50 **0.824** · mAP@50-95 0.433 · precision 0.857 · recall 0.773
+**Speed:** ~20 ms/image end-to-end on a Tesla T4.
 
-| Class | Images | Instances | P | R | mAP@50 | mAP@50-95 |
-|---|---|---|---|---|---|---|
-| all | 143 | 1172 | 0.663 | 0.585 | 0.608 | 0.302 |
-| helmet | 107 | 201 | 0.825 | 0.811 | 0.803 | 0.427 |
-| gloves | 68 | 136 | 0.858 | 0.779 | 0.826 | 0.392 |
-| vest | 109 | 171 | 0.850 | 0.830 | 0.850 | 0.532 |
-| boots | 64 | 151 | 0.759 | 0.732 | 0.799 | 0.450 |
-| goggles | 44 | 47 | 0.793 | 0.745 | 0.816 | 0.380 |
-| none | 43 | 81 | 0.572 | 0.580 | 0.552 | 0.216 |
-| Person | 139 | 239 | 0.858 | 0.912 | 0.907 | 0.533 |
-| no_helmet | 27 | 45 | 0.549 | 0.422 | 0.448 | 0.155 |
-| no_goggle | 25 | 41 | 0.380 | 0.146 | 0.233 | 0.077 |
-| no_gloves | 23 | 56 | 0.487 | 0.232 | 0.289 | 0.078 |
-| no_boots | 2 | 4 | 0.363 | 0.250 | 0.164 | 0.085 |
+The 6-class figures come from `model.val(classes=[0,1,2,3,4,6], imgsz=960)` on the V2 weights. All 143 validation and 141 test images are retained — only the label set changes.
 
-*Note: the midterm materials listed per-class mAP@50-95 values under the heading "per-class mAP@50"; the table above is the corrected, full breakdown.*
+## Per-class mAP@50 (validation)
+
+| Kept — used by the compliance rule | | Dropped — incoherent labels | |
+|---|---|---|---|
+| Person | 0.886 | none | 0.505 |
+| vest | 0.863 | no_helmet | 0.370 |
+| helmet | 0.826 | no_gloves | 0.225 |
+| gloves | 0.817 | no_goggle | 0.177 |
+| goggles | 0.815 | no_boots | 0.000 |
+| boots | 0.781 | | |
+| **mean** | **0.831** | **mean** | **0.255** |
+
+## V1 → V2 per-class deltas (11-class, validation)
+
+| Class | V1 | V2 | Δ |
+|---|---|---|---|
+| helmet | 0.803 | 0.826 | **+0.023** |
+| vest | 0.850 | 0.863 | **+0.013** |
+| goggles | 0.816 | 0.815 | −0.001 |
+| gloves | 0.826 | 0.817 | −0.009 |
+| boots | 0.799 | 0.781 | −0.018 |
+| Person | 0.907 | 0.886 | −0.021 |
+| none | 0.552 | 0.505 | −0.047 |
+| no_goggle | 0.233 | 0.177 | −0.056 |
+| no_gloves | 0.289 | 0.225 | −0.064 |
+| no_helmet | 0.448 | 0.370 | −0.078 |
+| no_boots | 0.164 | **0.000** | −0.164 |
+
+Higher resolution helped the gear classes the rule depends on. Oversampling degraded every violation class, because the images it duplicated are off-domain stock photography (see `docs/dataset_analysis.md`).
 
 ## Reading the results
 
-- Training converged cleanly: losses fall smoothly and mAP plateaus around epoch 35–40, no overfitting (`results_curves.png`).
-- Strong on people and common gear (mAP@50 0.80–0.91); the confusion matrix shows solid diagonals for helmet, vest, boots, Person, gloves.
-- Weak on rare violation classes (`no_goggle` 0.23, `no_boots` 0.16 — only 4 val instances). This matters because the compliance rule uses `no_helmet` / `no_goggle` detections.
-- Improvement path: more violation-class data (SH17 scale-up, 8,099 images, or oversampling).
+- The detector is strong on people and real gear (0.78–0.89) and weak only on classes whose labels are internally contradictory.
+- V2's confusion matrix shows true `no_boots` predicted as `boots` **50%** of the time, and the `none` class absorbing true vest 13% / gloves 8% / helmet 5%.
+- Rejected after measurement: **test-time augmentation** (0.823 with vs 0.831 without).
 
 ## Files
 
-- `results_curves.png` — training/val loss + precision/recall/mAP curves
-- `confusion_matrix.png` — per-class confusion matrix
-- `val_batch0_pred.jpg` — model predictions on a validation batch
-- `compliance_samples/` — 6 real system outputs labeled Compliant / Non-compliant
+- `results_curves.png`, `confusion_matrix.png`, `val_batch0_pred.jpg` — V1 artifacts
+- `compliance_samples/` — 6 annotated V1 outputs
+- `v2_run/` — V2 curves, confusion matrices, `results.csv`, and 8 demo outputs including a **NON-COMPLIANT** case
 
-Trained weights (`best.pt`) are regenerated by Run-All of `notebooks/02_training.ipynb` (~17 min on a Colab T4); they are not stored in the repo.
+Trained weights are not stored in the repo; `notebooks/02_training.ipynb` (V1) or `notebooks/05_training_v3_6class.ipynb` (V3) regenerate them with one Run-All on a GPU.
