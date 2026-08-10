@@ -5,7 +5,7 @@
 
 > A computer-vision system that looks at a job-site image, detects each worker, and flags whether they are wearing the required safety gear — hard hat, hi-vis vest, and safety goggles — labeling each person "compliant" or "non-compliant."
 
-**Demo video:** [ADD LINK — YouTube (Unlisted) or Google Drive with "Anyone with link"]
+**Demo video:** https://youtu.be/FjbDkIn21p4
 **Presentation:** [`docs/presentation.pdf`](docs/presentation.pdf)  ·  **Final model:** V3, 6-class, test mAP@50 **0.842**
 **Experiment log:** [`docs/experiment_log.md`](docs/experiment_log.md) · **Dataset analysis:** [`docs/dataset_analysis.md`](docs/dataset_analysis.md)
 **Midterm proposal repo:** https://github.com/Tikskalani/ITAI-1378-Midterm_PPE-Compliance-Checker
