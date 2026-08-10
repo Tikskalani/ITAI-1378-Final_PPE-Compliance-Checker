@@ -1,6 +1,6 @@
 # Experiment Log — chasing the mAP@50 ≥ 0.85 target
 
-Three training runs and a diagnostic investigation. Every number below is measured, not estimated. V1 and V2 metrics come from executed training runs; the 6-class figures come from re-evaluating the V2 weights with `model.val(classes=[0,1,2,3,4,6], imgsz=960)`.
+Three training runs and a diagnostic investigation. Every number below is measured, not estimated.
 
 ## Summary
 
@@ -8,8 +8,8 @@ Three training runs and a diagnostic investigation. Every number below is measur
 |---|---|---|---|---|
 | V1 | 11-class | YOLO11s, 640px, 40 epochs | 0.608 | — |
 | V2 | 11-class | YOLO11s, 960px, 60 epochs, rare-class oversampling | **0.569** (regression) | 0.531 |
-| V2 re-scored | 6-class | same weights, incoherent classes removed from the task | **0.831** | 0.824 |
-| V3 | 6-class | YOLO11s, 960px, 100 epochs, close_mosaic, no oversampling | *pending run* | *pending run* |
+| V2 re-scored | 6-class | same weights, incoherent classes removed from the task | 0.831 | 0.824 |
+| **V3 (final)** | **6-class** | **YOLO11s, 960px, 55 epochs, close_mosaic 15, no oversampling** | **0.827** | **0.842** |
 
 ## V2: why the "improvement" made things worse
 
@@ -31,39 +31,49 @@ Per-class deltas, V1 → V2 (validation):
 | no_helmet | 0.448 | 0.370 | −0.078 |
 | no_boots | 0.164 | **0.000** | −0.164 |
 
-The resolution change did what it was supposed to — helmet and vest, the two classes the compliance rule depends on, both improved. **The oversampling is what failed**, and it failed for exactly the reason `dataset_analysis.md` Finding 2 predicted: the images containing `no_*` labels are off-domain stock photography (gyms, offices, family photos — 12/12 in a random sample). Duplicating them multiplied the wrong distribution. Every single `no_*` class got worse, and `no_boots` collapsed to zero.
+The resolution change did what it was supposed to — helmet and vest, the two classes the compliance rule depends on, both improved. **The oversampling is what failed**, and it failed for exactly the reason `dataset_analysis.md` Finding 2 predicted: the images containing `no_*` labels are off-domain stock photography (gyms, offices, family photos — 12/12 in a random sample). Duplicating them multiplied the wrong distribution.
 
-**The hypothesis was refuted by its own mechanism.** Oversampling only helps when the extra copies are representative; here they were not.
+**The hypothesis was refuted by its own mechanism** — and that refutation is what pointed at the real fix.
 
 ## The deeper finding: the 11-class target is unreachable
 
 Two pieces of evidence from V2's confusion matrix show the ceiling is set by the labels, not the model.
 
-**1. The `no_*` labels contradict the gear labels.** True `no_boots` is predicted as `boots` **50%** of the time. The same visual region — a worker's feet — is annotated `boots` in some images and `no_boots` in others. A detector cannot separate two classes that are annotated on the same appearance. Between 24% and 50% of every `no_*` class is also lost to background.
+**1. The `no_*` labels contradict the gear labels.** True `no_boots` is predicted as `boots` **50%** of the time. The same visual region — a worker's feet — is annotated `boots` in some images and `no_boots` in others. A detector cannot separate two classes annotated on the same appearance. Between 24% and 50% of every `no_*` class is also lost to background.
 
-**2. The `none` class steals correct detections.** The model predicts `none` on objects that are truly **vest (13%), gloves (8%), helmet (5%)**. Those are real gear detections being consumed by a catch-all class.
+**2. The `none` class steals correct detections.** The model predicts `none` on objects that are truly **vest (13%), gloves (8%), helmet (5%)**.
 
-Because mAP@50 is the unweighted mean across all 11 classes, five incoherent classes cap the achievable headline regardless of model quality. Ultralytics publishes no baseline for this dataset, so there is no external number suggesting otherwise. **Reaching 0.85 averaged over all 11 classes is not achievable with these labels.**
+Because mAP@50 is the unweighted mean across all 11 classes, five incoherent classes cap the achievable headline regardless of model quality. Ultralytics publishes no baseline for this dataset. **Reaching 0.85 averaged over all 11 classes is not achievable with these labels.**
 
 ## V3: solve the task the system actually performs
 
-The final system decides compliance from **positive evidence** — it requires a detected helmet and vest on a detected person (`src/predict_compliance.py`). It never needs a `no_*` class to fire. So V3 trains on the six classes the decision uses: `helmet, gloves, vest, boots, goggles, Person`, dropping `none` and the four `no_*` classes.
+The system decides compliance from **positive evidence** — a detected helmet and vest on a detected person (`src/predict_compliance.py`). It never needs a `no_*` class. V3 therefore trains on the six classes the decision uses: `helmet, gloves, vest, boots, goggles, Person`, dropping `none` and the four `no_*` classes.
 
-This is a documented scope decision with measured justification, not metric selection:
+A documented scope decision with measured justification, not metric selection:
 
 - The dropped classes are **not used** by the compliance rule.
 - They are **off-domain** (12/12 sampled images are not construction scenes).
 - They are **internally contradictory** (`no_boots` ↔ `boots`, 50% confusion).
 - They are **actively harmful** to the retained classes (`none` absorbs 13% of true vests).
-- **The evaluation set is unchanged.** All 143 validation and 141 test images are retained — zero images dropped. Only the label set changes. Both the 11-class and 6-class numbers are reported.
+- **The evaluation set is unchanged.** All 143 validation and 141 test images retained — zero images dropped, only the label set changes. Both 11-class and 6-class numbers are reported.
 
-A side effect confirms the diagnosis: removing these classes drops class imbalance from **20.3:1 to 4.2:1**. The imbalance problem largely *was* the junk classes.
+Side effect confirming the diagnosis: class imbalance falls from **20.3:1 to 4.2:1**. The imbalance problem largely *was* the junk classes.
 
-### Where the remaining points come from
+### V3 result
 
-Re-scoring the existing V2 weights on the 6-class task already gives **0.831 val / 0.824 test** — and that is an 11-class model being filtered, not one trained for the job. Training natively should clear 0.85 because the detections currently lost to `none` return to vest, gloves and helmet. Two further changes are included: `close_mosaic=15` (standard late-training gain) and 100 epochs with patience 25 (V2 early-stopped at 56).
+YOLO11s · 960px · 55 epochs · close_mosaic 15 · cos_lr · 0.825 h on a Colab T4.
 
-Expected landing zone is **0.85–0.88**. That is a projection from measured per-class losses, not a promise — the run decides.
+| Metric | Validation | Held-out test |
+|---|---|---|
+| mAP@50 | 0.8273 | **0.8417** |
+| mAP@50-95 | 0.4509 | **0.4554** |
+| Precision / recall | 0.857 / 0.789 | 0.880 / 0.781 |
+
+Per-class mAP@50 (test): helmet **0.934**, vest **0.904**, goggles 0.839, Person 0.836, gloves 0.782, boots 0.756.
+
+Against the V2 6-class baseline: **test mAP@50 +0.0182**, test mAP@50-95 **+0.0225**, val mAP@50-95 **+0.0030**, val mAP@50 −0.0039. Training natively on six classes improved localization on both splits and detection quality on the held-out split.
+
+**The target was not met.** 0.842 on test falls short of 0.85. The remaining gap sits almost entirely in `boots` (0.756) and `gloves` (0.782) — the two classes with the loosest bounding boxes in the dataset. The two classes the compliance decision actually requires, helmet and vest, are at 0.934 and 0.904.
 
 ### Rejected after testing
 
@@ -71,4 +81,6 @@ Expected landing zone is **0.85–0.88**. That is a projection from measured per
 
 ## Reproducing
 
-`notebooks/05_training_v3_6class.ipynb` — Run All on any free GPU. Colab (T4) or Kaggle Notebooks (30 free GPU-hours/week, Accelerator → GPU T4 x2). About one hour. The notebook rebuilds the 6-class labels from the original download, trains, evaluates on val and test against the 0.8312 / 0.8235 baseline, and prints the full experiment record.
+`notebooks/05_training_v3_6class.ipynb` — Run All on any free GPU (Colab T4 or Kaggle). About 50 minutes. It rebuilds the 6-class labels from the original download, trains, and evaluates on val and test against the baseline.
+
+*Operational note: Colab dropped the GPU runtime three times during this work, losing two V3 runs mid-training (the second at epoch 85/100). The schedule was shortened from 100 to 55 epochs so the run completed inside the window that had been failing.*
