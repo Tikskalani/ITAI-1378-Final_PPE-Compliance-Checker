@@ -6,27 +6,50 @@ All figures measured from executed runs. Nothing estimated.
 
 | Run | Task | Config | val mAP@50 | test mAP@50 |
 |---|---|---|---|---|
-| V1 | 11-class | YOLO11s, 640px, 40 epochs, batch 16 | 0.608 | — |
-| V2 | 11-class | YOLO11s, 960px, 60 epochs, rare-class oversampling | 0.569 | 0.531 |
-| **V2 re-scored** | **6-class** | same weights, incoherent classes removed | **0.831** | **0.824** |
+| V1 | 11-class | YOLO11s, 640px, 40 epochs | 0.608 | — |
+| V2 | 11-class | YOLO11s, 960px, 60 epochs, oversampling | 0.569 | 0.531 |
+| V2 re-scored | 6-class | same weights, incoherent classes removed | 0.831 | 0.824 |
+| **V3 (final)** | **6-class** | **YOLO11s, 960px, 55 epochs, close_mosaic** | **0.827** | **0.842** |
 
-**Headline (6-class task, validation):** mAP@50 **0.831** · mAP@50-95 **0.448** · precision 0.833 · recall 0.784
-**Held-out test:** mAP@50 **0.824** · mAP@50-95 0.433 · precision 0.857 · recall 0.773
-**Speed:** ~20 ms/image end-to-end on a Tesla T4.
+## V3 — the final model
 
-The 6-class figures come from `model.val(classes=[0,1,2,3,4,6], imgsz=960)` on the V2 weights. All 143 validation and 141 test images are retained — only the label set changes.
+YOLO11s · 960px · 55 epochs · batch 8 · close_mosaic 15 · cos_lr · **0.825 h on a Colab T4**
 
-## Per-class mAP@50 (validation)
+| Metric | Validation (143 img / 945 inst) | Held-out test (141 img / 1,032 inst) |
+|---|---|---|
+| mAP@50 | 0.8273 | **0.8417** |
+| mAP@50-95 | 0.4509 | **0.4554** |
+| Precision | 0.8572 | 0.8796 |
+| Recall | 0.7887 | 0.7805 |
 
-| Kept — used by the compliance rule | | Dropped — incoherent labels | |
+Speed (val, 960px, T4): 14.4 ms preprocess + 24.5 ms inference + 2.3 ms postprocess = **~41 ms/image**.
+
+Test is the more rigorous figure — `best.pt` is chosen on validation fitness, so test is the only split never used for model selection.
+
+### Per-class mAP@50
+
+| Class | val | test |
+|---|---|---|
+| helmet | 0.804 | **0.934** |
+| vest | 0.841 | **0.904** |
+| goggles | 0.809 | 0.839 |
+| Person | 0.896 | 0.836 |
+| gloves | 0.817 | 0.782 |
+| boots | 0.797 | 0.756 |
+| **mean** | **0.827** | **0.842** |
+
+The two classes the compliance rule requires — helmet and vest — are the strongest on the held-out split.
+
+## V3 vs the V2 6-class baseline
+
+| Metric | V2 (6-cls) | V3 | Δ |
 |---|---|---|---|
-| Person | 0.886 | none | 0.505 |
-| vest | 0.863 | no_helmet | 0.370 |
-| helmet | 0.826 | no_gloves | 0.225 |
-| gloves | 0.817 | no_goggle | 0.177 |
-| goggles | 0.815 | no_boots | 0.000 |
-| boots | 0.781 | | |
-| **mean** | **0.831** | **mean** | **0.255** |
+| val mAP@50 | 0.8312 | 0.8273 | −0.0039 |
+| val mAP@50-95 | 0.4479 | 0.4509 | **+0.0030** |
+| test mAP@50 | 0.8235 | 0.8417 | **+0.0182** |
+| test mAP@50-95 | 0.4329 | 0.4554 | **+0.0225** |
+
+Training natively on six classes improved localization quality (mAP@50-95) on both splits and detection quality on the held-out split. Validation is essentially unchanged.
 
 ## V1 → V2 per-class deltas (11-class, validation)
 
@@ -46,16 +69,14 @@ The 6-class figures come from `model.val(classes=[0,1,2,3,4,6], imgsz=960)` on t
 
 Higher resolution helped the gear classes the rule depends on. Oversampling degraded every violation class, because the images it duplicated are off-domain stock photography (see `docs/dataset_analysis.md`).
 
-## Reading the results
+## Rejected after measurement
 
-- The detector is strong on people and real gear (0.78–0.89) and weak only on classes whose labels are internally contradictory.
-- V2's confusion matrix shows true `no_boots` predicted as `boots` **50%** of the time, and the `none` class absorbing true vest 13% / gloves 8% / helmet 5%.
-- Rejected after measurement: **test-time augmentation** (0.823 with vs 0.831 without).
+**Test-time augmentation** — 0.823 with vs 0.831 without on the 6-class task. Not used.
 
 ## Files
 
-- `results_curves.png`, `confusion_matrix.png`, `val_batch0_pred.jpg` — V1 artifacts
-- `compliance_samples/` — 6 annotated V1 outputs
-- `v2_run/` — V2 curves, confusion matrices, `results.csv`, and 8 demo outputs including a **NON-COMPLIANT** case
+- `v3_run/` — **final model artifacts**: training curves, confusion matrices, `results.csv`, 12 demo outputs
+- `v2_run/` — V2 curves, confusion matrices, 8 demo outputs
+- `results_curves.png`, `confusion_matrix.png`, `val_batch0_pred.jpg`, `compliance_samples/` — V1 artifacts
 
-Trained weights are not stored in the repo; `notebooks/02_training.ipynb` (V1) or `notebooks/05_training_v3_6class.ipynb` (V3) regenerate them with one Run-All on a GPU.
+Trained weights are not stored in the repo; `notebooks/05_training_v3_6class.ipynb` regenerates `best_v3.pt` with one Run-All on a GPU (~50 min).
