@@ -6,7 +6,7 @@
 > A computer-vision system that looks at a job-site image, detects each worker, and flags whether they are wearing the required safety gear — hard hat, hi-vis vest, and safety goggles — labeling each person "compliant" or "non-compliant."
 
 **Demo video:** [ADD LINK — YouTube (Unlisted) or Google Drive with "Anyone with link"]
-**Presentation:** [`docs/presentation.pdf`](docs/presentation.pdf)
+**Presentation:** [`docs/presentation.pdf`](docs/presentation.pdf)  ·  **Final model:** V3, 6-class, test mAP@50 **0.842**
 **Experiment log:** [`docs/experiment_log.md`](docs/experiment_log.md) · **Dataset analysis:** [`docs/dataset_analysis.md`](docs/dataset_analysis.md)
 **Midterm proposal repo:** https://github.com/Tikskalani/ITAI-1378-Midterm_PPE-Compliance-Checker
 
@@ -33,7 +33,7 @@ A worker is compliant only when the required gear (helmet + vest by default) is 
 [ Output: box per worker + "Compliant" / "Non-compliant" ]
 ```
 
-Annotated outputs: [`results/v2_run/compliance_out_v2/`](results/v2_run/compliance_out_v2/) (includes a NON-COMPLIANT case) and [`results/compliance_samples/`](results/compliance_samples/).
+Annotated V3 outputs: [`results/v3_run/compliance_out_v3/`](results/v3_run/compliance_out_v3/) — 12 samples including correctly-flagged **NON-COMPLIANT** workers. Earlier runs: [`results/v2_run/`](results/v2_run/) and [`results/compliance_samples/`](results/compliance_samples/).
 
 ## 2. Technical approach
 
@@ -53,46 +53,56 @@ A full statistical analysis of the labels is in [`docs/dataset_analysis.md`](doc
 
 ## 4. Results
 
-Three training runs. All figures measured; nothing estimated.
+Three training runs. All figures measured; nothing estimated. Full record in [`docs/experiment_log.md`](docs/experiment_log.md).
 
 | Run | Task | Config | val mAP@50 | test mAP@50 |
 |---|---|---|---|---|
 | V1 | 11-class | YOLO11s, 640px, 40 epochs | 0.608 | — |
 | V2 | 11-class | YOLO11s, 960px, 60 epochs, rare-class oversampling | 0.569 | 0.531 |
-| **V2 re-scored** | **6-class** | same weights, incoherent classes removed from the task | **0.831** | **0.824** |
+| V2 re-scored | 6-class | same weights, incoherent classes removed from the task | 0.831 | 0.824 |
+| **V3 (final)** | **6-class** | **YOLO11s, 960px, 55 epochs, close_mosaic, no oversampling** | **0.827** | **0.842** |
 
-**Headline: mAP@50 = 0.831** on the six classes the compliance decision uses, against a 0.85 target — with precision 0.83, recall 0.78, mAP@50-95 0.448, and ~20 ms/image end-to-end on a T4 (target was < 1 s/image).
+**Final model — V3.** Trained natively on the six classes the compliance decision uses, 55 epochs in 0.83 h on a Colab T4.
 
-### Per-class mAP@50 — kept vs dropped
+| Metric | Target | Validation (143 img) | Held-out test (141 img) |
+|---|---|---|---|
+| mAP@50 | ≥ 0.85 | 0.827 | **0.842** |
+| mAP@50-95 | — | 0.451 | **0.455** |
+| Precision / recall | — | 0.857 / 0.789 | 0.880 / 0.781 |
+| Latency | < 1 s / image | — | **~41 ms/image** at 960px on a T4 |
 
-| Kept (used by the rule) | mAP@50 | | Dropped | mAP@50 |
+The **test split is the more rigorous number**: `best.pt` is selected on validation fitness, so validation is mildly optimistic while test was never used for model selection. V3 beats the V2 baseline by **+0.018 mAP@50 on test** and improves mAP@50-95 on both splits.
+
+### Per-class mAP@50 — V3 kept classes (test) vs classes dropped
+
+| Kept (used by the rule) | test mAP@50 | | Dropped | val mAP@50 (V2) |
 |---|---|---|---|---|
-| Person | 0.886 | | none | 0.505 |
-| vest | 0.863 | | no_helmet | 0.370 |
-| helmet | 0.826 | | no_gloves | 0.225 |
-| gloves | 0.817 | | no_goggle | 0.177 |
-| goggles | 0.815 | | no_boots | **0.000** |
-| boots | 0.781 | | | |
-| **mean** | **0.831** | | **mean** | **0.255** |
+| helmet | **0.934** | | none | 0.505 |
+| vest | **0.904** | | no_helmet | 0.370 |
+| goggles | 0.839 | | no_gloves | 0.225 |
+| Person | 0.836 | | no_goggle | 0.177 |
+| gloves | 0.782 | | no_boots | **0.000** |
+| boots | 0.756 | | | |
+| **mean** | **0.842** | | **mean** | **0.255** |
+
+The two classes the compliance rule actually requires — **helmet 0.934 and vest 0.904** — are the model's strongest.
 
 ### Why five classes were dropped
 
-The six kept classes average 0.831. The five dropped classes average 0.255 — and the reason is the labels, not the model:
+The reason is the labels, not the model:
 
-- **They are off-domain.** In a random sample of 12 training images containing `no_*` labels, **12 of 12** were not construction scenes: gyms, offices, banquets, family photos. The `no_*` subset appears to be generic "person without PPE" stock photography.
-- **They are self-contradictory.** V2's confusion matrix shows true `no_boots` predicted as `boots` **50%** of the time. The same visual region is annotated `boots` in some images and `no_boots` in others; no amount of training separates two classes drawn on the same appearance.
-- **They actively damage the classes we keep.** The model predicts `none` on objects that are truly **vest (13%), gloves (8%), helmet (5%)** — real gear detections consumed by a catch-all class.
-- **They are not used.** The positive-evidence compliance rule never needs a `no_*` detection to fire.
+- **Off-domain.** In a random sample of 12 training images containing `no_*` labels, **12 of 12** were not construction scenes: gyms, offices, banquets, family photos.
+- **Self-contradictory.** V2's confusion matrix shows true `no_boots` predicted as `boots` **50%** of the time — the same visual region annotated both ways.
+- **Actively harmful.** The model predicted `none` on objects truly **vest (13%), gloves (8%), helmet (5%)** — real detections consumed by a catch-all class.
+- **Unused.** The positive-evidence rule never needs a `no_*` detection to fire.
 
-**The evaluation set is unchanged.** All 143 validation and 141 test images are retained — zero images dropped, only the label set changes. Both the 11-class and 6-class figures are reported above. Removing these classes also drops class imbalance from **20.3:1 to 4.2:1**; the imbalance problem largely *was* the junk classes.
+**The evaluation set is unchanged.** All 143 validation and 141 test images are retained — zero images dropped, only the label set changes. Both the 11-class and 6-class figures are reported. Removing these classes also drops class imbalance from **20.3:1 to 4.2:1**.
 
 ### The V2 experiment
 
-V2 changed two things: 960px input (for tiny objects) and oversampling of rare `no_*` images (for imbalance). Net result was a **regression**, 0.608 → 0.569.
+V2 changed two things: 960px input and oversampling of rare `no_*` images. Net result was a **regression**, 0.608 → 0.569. The resolution change worked — helmet **+0.023**, vest **+0.013**. The oversampling failed for exactly the reason the dataset analysis predicted: it duplicated off-domain images, multiplying the wrong distribution. Every `no_*` class got worse and `no_boots` collapsed to zero. That refutation is what identified the real fix, which V3 implements.
 
-The resolution change worked — helmet **+0.023** and vest **+0.013**, the two classes the compliance rule depends on. The oversampling failed, and failed for exactly the reason the dataset analysis predicted: it duplicated off-domain images, multiplying the wrong distribution. Every `no_*` class got worse and `no_boots` collapsed to zero. The hypothesis was refuted by its own mechanism, which is what pointed at the real fix.
-
-**Also tested and rejected:** test-time augmentation, measured at 0.823 vs 0.831 without. It hurt, so it is not used.
+**Also tested and rejected:** test-time augmentation, measured at 0.823 vs 0.831 without.
 
 *Correction vs. the midterm materials: the midterm listed per-class `metrics.box.maps` values (which are mAP@50-95) under the heading "per-class mAP@50". All tables here use the correct columns.*
 
@@ -107,7 +117,7 @@ The resolution change worked — helmet **+0.023** and vest **+0.013**, the two 
 │   ├── 02_training.ipynb             V1 training (Colab, Run-All)
 │   ├── 03_training_results.ipynb     the executed V1 run with all outputs
 │   ├── 04_training_v2.ipynb          V2 experiment (960px + oversampling)
-│   └── 05_training_v3_6class.ipynb   V3 — 6-class training targeting mAP@50 >= 0.85
+│   └── 05_training_v3_6class.ipynb   V3 — the final 6-class model (test mAP@50 0.842)
 ├── src/
 │   └── predict_compliance.py         run the model on any image or folder
 ├── data/
@@ -124,7 +134,8 @@ The resolution change worked — helmet **+0.023** and vest **+0.013**, the two 
     ├── confusion_matrix.png          V1 confusion matrix
     ├── val_batch0_pred.jpg           V1 validation predictions
     ├── compliance_samples/           6 annotated V1 outputs
-    └── v2_run/                       V2 curves, confusion matrices, 8 demo outputs
+    ├── v2_run/                       V2 curves, confusion matrices, 8 demo outputs
+    └── v3_run/                       V3 curves, confusion matrices, 12 demo outputs
 ```
 
 ## 6. Reproducing the results
@@ -132,22 +143,23 @@ The resolution change worked — helmet **+0.023** and vest **+0.013**, the two 
 Trained weights are not stored in the repo; one Run-All regenerates them.
 
 1. **V1 baseline (~17 min):** open `notebooks/02_training.ipynb` in Colab, set **T4 GPU**, **Runtime → Run all**.
-2. **V3, the 6-class run (~1 hr):** open `notebooks/05_training_v3_6class.ipynb` on Colab or Kaggle with a GPU and Run All. It rebuilds the 6-class labels from the original download, trains, and evaluates on both val and test against the 0.8312 / 0.8235 baseline.
+2. **V3, the final model (~50 min):** open `notebooks/05_training_v3_6class.ipynb` on Colab or Kaggle with a GPU and Run All. It rebuilds the 6-class labels from the original download, trains 55 epochs at 960px, and evaluates on both val and test against the V2 baseline.
 3. **Run the model on any image:**
 
 ```bash
 pip install -r requirements.txt
-python src/predict_compliance.py --weights best.pt --source your_image.jpg --imgsz 960 --out out/
+python src/predict_compliance.py --weights best_v3.pt --source your_image.jpg --imgsz 960 --out out/
 ```
 
 ## 7. Challenges & what we learned
 
 | Challenge | What happened |
 |---|---|
-| V2 "improvement" made things worse | 0.608 → 0.569. Oversampling multiplied off-domain images. Diagnosed from per-class deltas and the confusion matrix. |
+| V2 "improvement" made things worse | 0.608 → 0.569. Oversampling multiplied off-domain images. Diagnosed from per-class deltas and the confusion matrix — and that diagnosis produced V3. |
 | The 11-class target was unreachable | Contradictory labels (`no_boots` ↔ `boots`, 50% confusion) cap the achievable mean regardless of model quality. |
 | A junk class was eating real detections | `none` absorbed 13% of true vests. Found in the confusion matrix, not in the headline number. |
 | **Lost laptop late in the project** | All code, notebooks and results survived because they were committed to GitHub — including the executed notebook, from which every figure was recovered. Version control saved the project. |
+| Colab dropped the GPU runtime three times | Lost two V3 runs mid-training. Shortened the schedule to 55 epochs so it finished inside the window. |
 | Video (V2 capstone) beyond scope | Kept as future work; the image pipeline is the graded deliverable. |
 
 The broader lesson: the headline metric was measuring the dataset's defects more than the system's quality. Diagnosing that took a confusion matrix and a random sample of training images — not a bigger model.
